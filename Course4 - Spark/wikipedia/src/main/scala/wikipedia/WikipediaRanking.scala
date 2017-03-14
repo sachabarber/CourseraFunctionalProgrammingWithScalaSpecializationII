@@ -26,13 +26,9 @@ object WikipediaRanking {
     * Hint4: no need to search in the title :)
     */
   def occurrencesOfLang(lang: String, rdd: RDD[WikipediaArticle]): Int = {
-    //USING Filter
-    //rdd.filter(article => article.text.toLowerCase().split(" ").contains(lang.toLowerCase())).distinct().count().toInt
-
-    // //USING aggregate
-    rdd.map(wiki => { if(wiki.text.toLowerCase().split(" ").contains(lang.toLowerCase())) 1 else 0 })
+    rdd.map(wiki => { if(wiki.text.split(" ").contains(lang)) 1 else 0 })
       .aggregate(0) (
-        (acc, value) => { (acc + value) },
+        (acc, value) => (acc + value),
         (acc1, acc2) => (acc1 + acc2)
       )
   }
@@ -54,8 +50,8 @@ object WikipediaRanking {
   */
   def makeIndex(langs: List[String], rdd: RDD[WikipediaArticle]): RDD[(String, Iterable[WikipediaArticle])] = {
     val articleLanguagePairs = rdd.flatMap(article => {
-      val langsWhereWikiHasText = langs.filter(lang => article.text.toLowerCase().split(" ").contains(lang.toLowerCase))
-      langsWhereWikiHasText.map(lang => (lang, article))
+      val langsMentioned = langs.filter(lang => article.text.split(" ").contains(lang))
+      langsMentioned.map(lang => (lang, article))
     })
     articleLanguagePairs.groupByKey
   }
@@ -67,7 +63,7 @@ object WikipediaRanking {
   * several seconds.
   */
   def rankLangsUsingIndex(index: RDD[(String, Iterable[WikipediaArticle])]): List[(String, Int)] = {
-    index.mapValues(_.size).collect().toList.sortBy(x => x._2).reverse
+    index.mapValues(_.size).sortBy(-_._2).collect().toList
   }
 
   /* (3) Use `reduceByKey` so that the computation of the index and the ranking is combined.
@@ -79,8 +75,8 @@ object WikipediaRanking {
   */
   def rankLangsReduceByKey(langs: List[String], rdd: RDD[WikipediaArticle]): List[(String, Int)] = {
     rdd.flatMap(article => {
-      langs.filter(lang => article.text.toLowerCase.split(" ").contains(lang.toLowerCase)).map((_, 1))
-    }).reduceByKey(_ + _).collect().toList.sortBy(x => x._2).reverse
+      langs.filter(lang => article.text.split(" ").contains(lang)).map((_, 1))
+    }).reduceByKey(_ + _).sortBy(-_._2).collect().toList
   }
 
   def main(args: Array[String]) {
