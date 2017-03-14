@@ -50,8 +50,8 @@ object WikipediaRanking {
   */
   def makeIndex(langs: List[String], rdd: RDD[WikipediaArticle]): RDD[(String, Iterable[WikipediaArticle])] = {
     val articleLanguagePairs = rdd.flatMap(article => {
-      val langsMentioned = langs.filter(lang => article.text.split(" ").contains(lang))
-      langsMentioned.map(lang => (lang, article))
+      val langsWhereWikiHasText  = langs.filter(lang => article.text.split(" ").contains(lang))
+      langsWhereWikiHasText.map(lang => (lang, article))
     })
     articleLanguagePairs.groupByKey
   }
