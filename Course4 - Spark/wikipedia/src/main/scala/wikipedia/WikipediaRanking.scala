@@ -55,9 +55,9 @@ object WikipediaRanking {
    * to the Wikipedia pages in which it occurs.
    */
   def makeIndex(langs: List[String], rdd: RDD[WikipediaArticle]): RDD[(String, Iterable[WikipediaArticle])] = {
-    val articleLanguagePairs = rdd.flatMap(article => {
-      val langsMentioned = langs.filter(lang => article.text.split(" ").contains(lang))
-      langsMentioned.map(lang => (lang, article))
+    val articleLanguagePairs = rdd.flatMap(wiki => {
+      val langsMentioned = langs.filter(lang => wiki.text.toLowerCase.split(" ").contains(lang.toLowerCase))
+      langsMentioned.map(lang => (lang, wiki))
     })
     articleLanguagePairs.groupByKey
   }
@@ -69,7 +69,8 @@ object WikipediaRanking {
    *   several seconds.
    */
   def rankLangsUsingIndex(index: RDD[(String, Iterable[WikipediaArticle])]): List[(String, Int)] = {
-    index.mapValues(_.size).sortBy(-_._2).collect().toList
+    index.mapValues(_.size).collect().sortBy(_._2).toList.reverse
+	
   }
 
   /* (3) Use `reduceByKey` so that the computation of the index and the ranking is combined.
@@ -80,21 +81,21 @@ object WikipediaRanking {
    *   several seconds.
    */
   def rankLangsReduceByKey(langs: List[String], rdd: RDD[WikipediaArticle]): List[(String, Int)] = {
-    rdd.flatMap(article => {
-      langs.filter(lang => article.text.toLowerCase.split(" ").contains(lang.toLowerCase)).map((_, 1))
-    }).reduceByKey(_ + _).sortBy(-_._2).collect().toList
+    rdd.flatMap(wiki => {
+      langs.filter(lang => wiki.text.toLowerCase.split(" ").contains(lang.toLowerCase)).map((_, 1))
+    }).reduceByKey(_ + _).collect().sortBy(_._2).toList.reverse
   }
 
   def main(args: Array[String]) {
 
     /* Languages ranked according to (1) */
-    val langsRanked: List[(String, Int)] = timed("Part 1: naive ranking", rankLangs(langs, wikiRdd))
-
-    /* An inverted index mapping languages to wikipedia pages on which they appear */
-    def index: RDD[(String, Iterable[WikipediaArticle])] = makeIndex(langs, wikiRdd)
-
-    /* Languages ranked according to (2), using the inverted index */
-    val langsRanked2: List[(String, Int)] = timed("Part 2: ranking using inverted index", rankLangsUsingIndex(index))
+//    val langsRanked: List[(String, Int)] = timed("Part 1: naive ranking", rankLangs(langs, wikiRdd))
+//
+//    /* An inverted index mapping languages to wikipedia pages on which they appear */
+//    def index: RDD[(String, Iterable[WikipediaArticle])] = makeIndex(langs, wikiRdd)
+//
+//    /* Languages ranked according to (2), using the inverted index */
+//    val langsRanked2: List[(String, Int)] = timed("Part 2: ranking using inverted index", rankLangsUsingIndex(index))
 
     /* Languages ranked according to (3) */
     val langsRanked3: List[(String, Int)] = timed("Part 3: ranking using reduceByKey", rankLangsReduceByKey(langs, wikiRdd))
