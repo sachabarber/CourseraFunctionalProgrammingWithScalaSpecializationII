@@ -4,6 +4,7 @@ import org.apache.spark.SparkConf
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 import org.apache.spark.rdd.RDD
+import org.apache.spark.storage.StorageLevel
 import annotation.tailrec
 import scala.reflect.ClassTag
 
@@ -125,7 +126,23 @@ class StackOverflow extends Serializable {
       }
     }
 
-    ???
+    //using map
+    //scored.flatMap(item =>
+    //{
+    //  val (p,score) = item
+    //  firstLangInTag(p.tags,langs).map(idx => (idx * langSpread, score))
+    //})
+
+
+    //using mapPartitions
+    scored.mapPartitions {
+      _.flatMap {
+        case (posting, score) =>
+          firstLangInTag(posting.tags,langs).map(idx => (idx * langSpread, score))
+      }
+    }
+
+
   }
 
 
@@ -183,6 +200,16 @@ class StackOverflow extends Serializable {
     val newMeans = means.clone() // you need to compute newMeans
 
     // TODO: Fill in the newMeans array
+
+
+    vectors.persist(StorageLevel.DISK_ONLY)
+
+    val averaged = vectors.mapPartitions(p =>
+      p.map( v => (findClosest(v, means),v)))
+      .groupByKey().map(grp => (grp._1, averageVectors(grp._2)))
+
+    averaged.collect().map(a => newMeans.update(a._1,a._2))
+
     val distance = euclideanDistance(means, newMeans)
 
     if (debug) {
@@ -280,11 +307,22 @@ class StackOverflow extends Serializable {
     val closest = vectors.map(p => (findClosest(p, means), p))
     val closestGrouped = closest.groupByKey()
 
+    def findMedian(s: List[Int])  =
+    {
+      val (lower, upper) = s.sortWith(_<_).splitAt(s.size / 2)
+      if (s.size % 2 == 0) (lower.last + upper.head) / 2 else upper.head
+    }
+
     val median = closestGrouped.mapValues { vs =>
-      val langLabel: String   = ??? // most common language in the cluster
-      val langPercent: Double = ??? // percent of the questions in the most common language
-      val clusterSize: Int    = ???
-      val medianScore: Int    = ???
+
+      val languageReverseLookup = vs.map(pair =>( langs(pair._1/langSpread) ,pair._2))
+      val languageReverseLookupSorted = languageReverseLookup.groupBy(_._1).maxBy(_._2.size)
+      val scores = languageReverseLookup.map(_._2).toList
+
+      val langLabel: String   = languageReverseLookupSorted._1
+      val langPercent: Double = (languageReverseLookupSorted._2.size/vs.size) * 100.0
+      val clusterSize: Int    = vs.map(x => 1).sum
+      val medianScore: Int    = findMedian(scores)
 
       (langLabel, langPercent, clusterSize, medianScore)
     }
