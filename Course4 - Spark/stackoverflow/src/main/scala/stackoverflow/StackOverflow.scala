@@ -127,20 +127,20 @@ class StackOverflow extends Serializable {
     }
 
     //using map
-    //scored.flatMap(item =>
-    //{
-    //  val (p,score) = item
-    //  firstLangInTag(p.tags,langs).map(idx => (idx * langSpread, score))
-    //})
+    scored.flatMap(item =>
+    {
+      val (p,score) = item
+      firstLangInTag(p.tags,langs).map(idx => (idx * langSpread, score))
+    })
 
 
     //using mapPartitions
-    scored.mapPartitions {
-      _.flatMap {
-        case (posting, score) =>
-          firstLangInTag(posting.tags,langs).map(idx => (idx * langSpread, score))
-      }
-    }
+//    scored.mapPartitions {
+//      _.flatMap {
+//        case (posting, score) =>
+//          firstLangInTag(posting.tags,langs).map(idx => (idx * langSpread, score))
+//      }
+//    }
 
 
   }
@@ -204,10 +204,12 @@ class StackOverflow extends Serializable {
 
     vectors.persist(StorageLevel.DISK_ONLY)
 
-    val averaged = vectors.mapPartitions(p =>
-      p.map( v => (findClosest(v, means),v)))
-      .groupByKey().map(grp => (grp._1, averageVectors(grp._2)))
+//    val averaged = vectors.mapPartitions(p =>
+//      p.map( v => (findClosest(v, means),v)))
+//      .groupByKey().map(grp => (grp._1, averageVectors(grp._2)))
 
+
+    val averaged = vectors.groupBy(findClosest(_, means)).map(grp => (grp._1, averageVectors(grp._2)))
     averaged.collect().map(a => newMeans.update(a._1,a._2))
 
     val distance = euclideanDistance(means, newMeans)
