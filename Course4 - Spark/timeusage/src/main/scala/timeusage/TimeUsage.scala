@@ -30,6 +30,9 @@ object TimeUsage {
     val (columns, initDf) = read("/timeusage/atussum.csv")
     val (primaryNeedsColumns, workColumns, otherColumns) = classifiedColumns(columns)
     val summaryDf = timeUsageSummary(primaryNeedsColumns, workColumns, otherColumns, initDf)
+
+    summaryDf.show()
+
     val finalDf = timeUsageGrouped(summaryDf)
     finalDf.show()
   }
@@ -64,31 +67,26 @@ object TimeUsage {
     *         have type Double. None of the fields are nullable.
     * @param columnNames Column names of the DataFrame
     */
-  def dfSchema(columnNames: List[String]): StructType = {
-    val fields = columnNames.zipWithIndex.map{ case (element, index) =>
-    {
-      index match {
-        case 0 => StructField(element, StringType, nullable = false)
-        case _ => StructField(element, DoubleType, nullable = false)
+  def dfSchema(columnNames: List[String]): StructType =
+    StructType(
+      fields = columnNames.zipWithIndex map {
+        case (element, 0) => StructField(element, StringType, nullable = false)
+        case (element, _) => StructField(element, DoubleType, nullable = false)
       }
-    }}
-    StructType(fields)
-  }
+    )
 
 
 
   /** @return An RDD Row compatible with the schema produced by `dfSchema`
     * @param line Raw fields
     */
-  def row(line: List[String]): Row = {
-    Row.fromSeq(line.zipWithIndex.map{case (element,index) =>
-    {
-      index match {
-        case 0 => element.toString
-        case _ => element.toDouble
+  def row(line: List[String]): Row =
+    Row.fromSeq(
+      line.zipWithIndex map {
+        case (element, 0) => element.toString
+        case (element, _) => element.toDouble
       }
-    }}.toSeq)
-  }
+    )
 
   /** @return The initial data frame columns partitioned in three groups: primary needs (sleeping, eating, etc.),
     *         work and other (leisure activities)
@@ -106,7 +104,35 @@ object TimeUsage {
     *    “t10”, “t12”, “t13”, “t14”, “t15”, “t16” and “t18” (those which are not part of the previous groups only).
     */
   def classifiedColumns(columnNames: List[String]): (List[Column], List[Column], List[Column]) = {
-    ???
+
+    val primaryActivityList = List("t01" , "t03", "t11", "t1801" ,"t1803")
+    val workingActivityLIst = List("t05" , "t1805")
+    val leisureActivityLIst = List("t02", "t04", "t06", "t07", "t08", "t09","t10", "t12", "t13", "t14", "t15", "t16", "t18")
+
+    def isPrimaryMatch(theColumn : String) : Boolean =
+      primaryActivityList.exists(item => theColumn.startsWith(item))
+
+    def isWorkingMatch(theColumn : String) : Boolean =
+      workingActivityLIst.exists(item => theColumn.startsWith(item))
+
+    def isLeisureMatch(theColumn : String) : Boolean =
+      leisureActivityLIst.exists(item => theColumn.startsWith(item))
+
+    val seed = (List[Column](), List[Column](), List[Column]())
+    val (p, w, l) = columnNames.foldLeft(seed) { (acc, item) => {
+        val (pList, wList, lList) = acc
+        if(isPrimaryMatch(item))
+          (new Column(item) :: pList, wList, lList)
+        else if (isWorkingMatch(item))
+          (pList, new Column(item) :: wList, lList)
+        else if (isLeisureMatch(item))
+          (pList, wList, new Column(item) :: lList)
+        else
+          (pList, wList, lList)
+      }
+    }
+    (p.reverse, w.reverse, l.reverse)
+
   }
 
   /** @return a projection of the initial DataFrame such that all columns containing hours spent on primary needs
@@ -145,13 +171,33 @@ object TimeUsage {
     otherColumns: List[Column],
     df: DataFrame
   ): DataFrame = {
-    val workingStatusProjection: Column = ???
-    val sexProjection: Column = ???
-    val ageProjection: Column = ???
 
-    val primaryNeedsProjection: Column = ???
-    val workProjection: Column = ???
-    val otherProjection: Column = ???
+
+    //ageProjection OPTION 1
+    def doAgeProjection(tageColumnValue: Double) : String = {
+      if (tageColumnValue  >= 15 && tageColumnValue <= 22) "young"
+      else if (tageColumnValue >= 23 && tageColumnValue <= 55) "active"
+      else "elder"
+    }
+    val ageProjectionUdfDeclaration: Double => String = doAgeProjection(_)
+    val ageProjectionUdf = udf(ageProjectionUdfDeclaration)
+    val ageProjection: Column = ageProjectionUdf(df("teage")).alias("age")
+
+    val workingStatusProjection: Column =
+      when(df("telfs") >= 1 && df("telfs") < 3, "working")
+      .otherwise("not working")
+      .alias("working")
+
+    val sexProjection: Column =
+      when(df("tesex") === 1, "male")
+      .otherwise("female")
+      .alias("sex")
+
+    //http://stackoverflow.com/questions/37624699/adding-a-column-of-rowsums-across-a-list-of-columns-in-spark-dataframe
+    val primaryNeedsProjection: Column =  primaryNeedsColumns.reduce(_ + _).alias("primaryNeeds")
+    val workProjection: Column = workColumns.reduce(_ + _).alias("work")
+    val otherProjection: Column = otherColumns.reduce(_ + _).alias("other")
+
     df
       .select(workingStatusProjection, sexProjection, ageProjection, primaryNeedsProjection, workProjection, otherProjection)
       .where($"telfs" <= 4) // Discard people who are not in labor force
