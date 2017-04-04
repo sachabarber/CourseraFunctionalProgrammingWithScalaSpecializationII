@@ -31,7 +31,7 @@ object TimeUsage {
     val (primaryNeedsColumns, workColumns, otherColumns) = classifiedColumns(columns)
     val summaryDf = timeUsageSummary(primaryNeedsColumns, workColumns, otherColumns, initDf)
 
-    val showDebugInfo = false
+    val showDebugInfo = true
     if(showDebugInfo) {
       println("========== timeUsageSummary ================")
       summaryDf.show()
@@ -43,6 +43,10 @@ object TimeUsage {
       println("========== timeUsageGroupedSql ================")
       val sqlStringDf = timeUsageGroupedSql(summaryDf)
       sqlStringDf.show()
+
+      println("========== timeUsageGroupedSql ================")
+      val typedDs = timeUsageGroupedTyped(timeUsageSummaryTyped(summaryDf))
+      typedDs.show()
     }
   }
 
@@ -213,8 +217,15 @@ object TimeUsage {
       .alias("sex")
 
     //http://stackoverflow.com/questions/37624699/adding-a-column-of-rowsums-across-a-list-of-columns-in-spark-dataframe
+
+    def doMinsToHours(mins: Double) : Double = {
+      mins/60
+    }
+    val doMinsToHoursUdfDeclaration: Double => Double = doMinsToHours(_)
+    val doMinsToHoursUdf = udf(doMinsToHoursUdfDeclaration)
+
     val primaryNeedsProjection: Column =  primaryNeedsColumns.reduce(_ + _).alias("primaryNeeds")
-    val workProjection: Column = workColumns.reduce(_ + _).alias("work")
+    val workProjection: Column = workColumns.reduce(doMinsToHoursUdf(_) + doMinsToHoursUdf(_)).alias("work")
     val otherProjection: Column = otherColumns.reduce(_ + _).alias("other")
 
     df
@@ -328,8 +339,9 @@ object TimeUsage {
         val (working,sex,age) = grp._1
         TimeUsageRow(working,sex,age,Math.round(grp._2),Math.round(grp._3),Math.round(grp._4))
       })
-      .orderBy(colsToOrderBy:_*)
+      .orderBy("working","sex","age")
   }
+
 }
 
 /**
