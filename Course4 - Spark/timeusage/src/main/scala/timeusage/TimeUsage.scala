@@ -313,8 +313,22 @@ object TimeUsage {
     * Hint: you should use the `groupByKey` and `typed.avg` methods.
     */
   def timeUsageGroupedTyped(summed: Dataset[TimeUsageRow]): Dataset[TimeUsageRow] = {
-    import org.apache.spark.sql.expressions.scalalang.typed
-    ???
+    import org.apache.spark.sql.expressions.scalalang._
+    import org.apache.spark.sql.functions._
+
+    val colsToOrderBy = List(col("working"),col("sex"),col("age"))
+    summed
+      .groupByKey(x => (x.working,x.sex,x.age))
+      .agg(
+        typed.avg[TimeUsageRow](_.primaryNeeds),
+        typed.avg[TimeUsageRow](_.work),
+        typed.avg[TimeUsageRow](_.other)
+      )
+      .map(grp =>  {
+        val (working,sex,age) = grp._1
+        TimeUsageRow(working,sex,age,Math.round(grp._2),Math.round(grp._3),Math.round(grp._4))
+      })
+      .orderBy(colsToOrderBy:_*)
   }
 }
 
@@ -335,3 +349,15 @@ case class TimeUsageRow(
   work: Double,
   other: Double
 )
+
+object TimeUsageRow {
+  def Apply(row : Row) : TimeUsageRow = {
+    new TimeUsageRow(
+      row.getString(0),
+      row.getString(1),
+      row.getString(2),
+      row.getDouble(3),
+      row.getDouble(4),
+      row.getDouble(5))
+  }
+}
