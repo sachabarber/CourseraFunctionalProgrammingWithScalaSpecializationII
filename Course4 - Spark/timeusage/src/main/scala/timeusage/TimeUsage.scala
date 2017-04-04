@@ -31,10 +31,19 @@ object TimeUsage {
     val (primaryNeedsColumns, workColumns, otherColumns) = classifiedColumns(columns)
     val summaryDf = timeUsageSummary(primaryNeedsColumns, workColumns, otherColumns, initDf)
 
-    summaryDf.show()
+    val showDebugInfo = false
+    if(showDebugInfo) {
+      println("========== timeUsageSummary ================")
+      summaryDf.show()
 
-    val finalDf = timeUsageGrouped(summaryDf)
-    finalDf.show()
+      println("========== timeUsageGrouped ================")
+      val finalDf = timeUsageGrouped(summaryDf)
+      finalDf.show()
+
+      println("========== timeUsageGroupedSql ================")
+      val sqlStringDf = timeUsageGroupedSql(summaryDf)
+      sqlStringDf.show()
+    }
   }
 
   /** @return The read DataFrame along with its column names. */
@@ -173,15 +182,25 @@ object TimeUsage {
   ): DataFrame = {
 
 
-    //ageProjection OPTION 1
-    def doAgeProjection(tageColumnValue: Double) : String = {
-      if (tageColumnValue  >= 15 && tageColumnValue <= 22) "young"
-      else if (tageColumnValue >= 23 && tageColumnValue <= 55) "active"
-      else "elder"
-    }
-    val ageProjectionUdfDeclaration: Double => String = doAgeProjection(_)
-    val ageProjectionUdf = udf(ageProjectionUdfDeclaration)
-    val ageProjection: Column = ageProjectionUdf(df("teage")).alias("age")
+//    //ageProjection OPTION 1 : using Udf
+//    def doAgeProjection(tageColumnValue: Double) : String = {
+//      if (tageColumnValue  >= 15 && tageColumnValue <= 22) "young"
+//      else if (tageColumnValue >= 23 && tageColumnValue <= 55) "active"
+//      else "elder"
+//    }
+//    val ageProjectionUdfDeclaration: Double => String = doAgeProjection(_)
+//    val ageProjectionUdf = udf(ageProjectionUdfDeclaration)
+//    val ageProjection: Column = ageProjectionUdf(df("teage")).alias("age")
+
+
+    //ageProjection OPTION 2 : using when + otherwise + otherwise
+    val ageProjection: Column =
+      when(df("teage") >= 15 && df("teage") < 22, "young")
+        .otherwise(
+            when(df("teage") >= 23 && df("teage") < 55, "active")
+            .otherwise("elder")
+        )
+      .alias("age")
 
     val workingStatusProjection: Column =
       when(df("telfs") >= 1 && df("telfs") < 3, "working")
@@ -221,7 +240,53 @@ object TimeUsage {
     * Finally, the resulting DataFrame should be sorted by working status, sex and age.
     */
   def timeUsageGrouped(summed: DataFrame): DataFrame = {
-    ???
+//    val columnsToGroupOn = List(col("working"),col("sex"),col("age")).toSeq
+//    summed
+//      .groupBy(columnsToGroupOn:_*)
+//      .agg(
+//        round(avg($"primaryNeeds").as[Double],1).alias("primaryNeeds"),
+//        round(avg($"work").as[Double],1).alias("work"),
+//        round(avg($"other").as[Double],1).alias("other")
+//      )
+//      .orderBy($"working",$"sex",$"age")
+
+
+    val cols = List(col("working"),col("sex"),col("age"))
+    summed.groupBy(cols:_*)
+      .agg(
+        round(avg($"primaryNeeds").as[Double],1).as("primaryNeeds"),
+        round(avg($"work").as[Double],1).as("work"),
+        round(avg($"other").as[Double],1).as("other")
+      )
+      .orderBy(cols:_*)
+
+
+
+
+//    val  columnsToGroupOn = List("working","sex","age").toSeq
+//    val grouped = summed.groupBy(columnsToGroupOn.head, columnsToGroupOn.tail:_*)
+//    val dfFinal =
+//      grouped
+//        .avg("primaryNeeds", "work", "other")
+//        .withColumnRenamed("avg(primaryNeeds)", "primaryNeeds")
+//        .withColumnRenamed("avg(work)", "work")
+//        .withColumnRenamed("avg(other)", "other")
+//
+//    val rounded=
+//      dfFinal
+//        .select(
+//          $"working",
+//          $"sex",
+//          $"age",
+//          round($"primaryNeeds",1).alias("primaryNeeds"),
+//          round($"work",1).alias("work"),
+//          round($"other",1).alias("other")
+//        )
+//        .orderBy($"working",$"sex",$"age")
+//    rounded.show()
+//    rounded
+//
+
   }
 
   /**
@@ -237,8 +302,24 @@ object TimeUsage {
   /** @return SQL query equivalent to the transformation implemented in `timeUsageGrouped`
     * @param viewName Name of the SQL view to use
     */
-  def timeUsageGroupedSqlQuery(viewName: String): String =
-    ???
+  def timeUsageGroupedSqlQuery(viewName: String): String = {
+    s"""SELECT
+            working,
+            sex,
+            age,
+            round(avg(primaryNeeds),1) primaryNeeds,
+            round(avg(work),1) work,
+            round(avg(other),1) other
+        FROM ${viewName}
+        GROUP BY
+            working,
+            sex,
+            age
+        ORDER BY
+            working,
+            sex,
+            age"""
+ }
 
   /**
     * @return A `Dataset[TimeUsageRow]` from the “untyped” `DataFrame`
