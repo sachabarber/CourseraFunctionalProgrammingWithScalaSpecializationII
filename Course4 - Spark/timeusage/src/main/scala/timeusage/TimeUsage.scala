@@ -240,53 +240,14 @@ object TimeUsage {
     * Finally, the resulting DataFrame should be sorted by working status, sex and age.
     */
   def timeUsageGrouped(summed: DataFrame): DataFrame = {
-//    val columnsToGroupOn = List(col("working"),col("sex"),col("age")).toSeq
-//    summed
-//      .groupBy(columnsToGroupOn:_*)
-//      .agg(
-//        round(avg($"primaryNeeds").as[Double],1).alias("primaryNeeds"),
-//        round(avg($"work").as[Double],1).alias("work"),
-//        round(avg($"other").as[Double],1).alias("other")
-//      )
-//      .orderBy($"working",$"sex",$"age")
-
-
-    val cols = List(col("working"),col("sex"),col("age"))
-    summed.groupBy(cols:_*)
+    val colsToGroupOn = List(col("working"),col("sex"),col("age"))
+    summed.groupBy(colsToGroupOn:_*)
       .agg(
-        round(avg($"primaryNeeds").as[Double],1).as("primaryNeeds"),
-        round(avg($"work").as[Double],1).as("work"),
-        round(avg($"other").as[Double],1).as("other")
+        round(avg($"primaryNeeds").as[Double],1).alias("primaryNeeds"),
+        round(avg($"work").as[Double],1).alias("work"),
+        round(avg($"other").as[Double],1).alias("other")
       )
-      .orderBy(cols:_*)
-
-
-
-
-//    val  columnsToGroupOn = List("working","sex","age").toSeq
-//    val grouped = summed.groupBy(columnsToGroupOn.head, columnsToGroupOn.tail:_*)
-//    val dfFinal =
-//      grouped
-//        .avg("primaryNeeds", "work", "other")
-//        .withColumnRenamed("avg(primaryNeeds)", "primaryNeeds")
-//        .withColumnRenamed("avg(work)", "work")
-//        .withColumnRenamed("avg(other)", "other")
-//
-//    val rounded=
-//      dfFinal
-//        .select(
-//          $"working",
-//          $"sex",
-//          $"age",
-//          round($"primaryNeeds",1).alias("primaryNeeds"),
-//          round($"work",1).alias("work"),
-//          round($"other",1).alias("other")
-//        )
-//        .orderBy($"working",$"sex",$"age")
-//    rounded.show()
-//    rounded
-//
-
+      .orderBy(colsToGroupOn:_*)
   }
 
   /**
@@ -329,7 +290,16 @@ object TimeUsage {
     * cast them at the same time.
     */
   def timeUsageSummaryTyped(timeUsageSummaryDf: DataFrame): Dataset[TimeUsageRow] =
-    ???
+    timeUsageSummaryDf.map(row => {
+      TimeUsageRow(
+        row.getAs[String]("working"),
+        row.getAs[String]("sex"),
+        row.getAs[String]("age"),
+        row.getAs[Double]("primaryNeeds"),
+        row.getAs[Double]("work"),
+        row.getAs[Double]("other")
+      )
+    })
 
   /**
     * @return Same as `timeUsageGrouped`, but using the typed API when possible
