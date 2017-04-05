@@ -121,6 +121,7 @@ object TimeUsage {
     val primaryActivityList = List("t01" , "t03", "t11", "t1801" ,"t1803")
     val workingActivityLIst = List("t05" , "t1805")
     val leisureActivityLIst = List("t02", "t04", "t06", "t07", "t08", "t09","t10", "t12", "t13", "t14", "t15", "t16", "t18")
+    val t18Exclusions = List("t1801" ,"t1803","t1805")
 
     def isPrimaryMatch(theColumn : String) : Boolean =
       primaryActivityList.exists(item => theColumn.startsWith(item))
@@ -129,7 +130,8 @@ object TimeUsage {
       workingActivityLIst.exists(item => theColumn.startsWith(item))
 
     def isLeisureMatch(theColumn : String) : Boolean =
-      leisureActivityLIst.exists(item => theColumn.startsWith(item))
+      leisureActivityLIst.exists(item => theColumn.startsWith(item) &&
+        !t18Exclusions.exists(item => theColumn.startsWith(item)))
 
     val seed = (List[Column](), List[Column](), List[Column]())
     val (p, w, l) = columnNames.foldLeft(seed) { (acc, item) => {
@@ -186,49 +188,52 @@ object TimeUsage {
   ): DataFrame = {
 
 
-//    //ageProjection OPTION 1 : using Udf
-//    def doAgeProjection(tageColumnValue: Double) : String = {
-//      if (tageColumnValue  >= 15 && tageColumnValue <= 22) "young"
-//      else if (tageColumnValue >= 23 && tageColumnValue <= 55) "active"
-//      else "elder"
-//    }
-//    val ageProjectionUdfDeclaration: Double => String = doAgeProjection(_)
-//    val ageProjectionUdf = udf(ageProjectionUdfDeclaration)
-//    val ageProjection: Column = ageProjectionUdf(df("teage")).alias("age")
 
 
-    //ageProjection OPTION 2 : using when + otherwise + otherwise
-    val ageProjection: Column =
-      when(df("teage") >= 15 && df("teage") < 22, "young")
-        .otherwise(
-            when(df("teage") >= 23 && df("teage") < 55, "active")
-            .otherwise("elder")
-        )
-      .alias("age")
+    val primary = primaryNeedsColumns.map(_.toString)
+    val working = workColumns.map(_.toString)
+    val other = otherColumns.map(_.toString)
+
 
     val workingStatusProjection: Column =
-      when(df("telfs") >= 1 && df("telfs") < 3, "working")
-      .otherwise("not working")
-      .alias("working")
+      when($"telfs"  >=1 and $"telfs" <3, "working").otherwise("not working").as("working")
 
     val sexProjection: Column =
-      when(df("tesex") === 1, "male")
-      .otherwise("female")
-      .alias("sex")
+      when($"tesex" === 1,  "male").otherwise("female").as("sex")
 
-    //http://stackoverflow.com/questions/37624699/adding-a-column-of-rowsums-across-a-list-of-columns-in-spark-dataframe
+    val ageProjection: Column =
+      when($"teage" >=15 and $"teage" <= 22, "young")
+        .otherwise(when($"teage" >=23 and $"teage" <= 55,"active")
+          .otherwise("elder"))
+        .as("age")
 
-    def doMinsToHours(mins: Double) : Double = {
-      mins/60
-    }
-    val doMinsToHoursUdfDeclaration: Double => Double = doMinsToHours(_)
-    val doMinsToHoursUdf = udf(doMinsToHoursUdfDeclaration)
 
-    val primaryNeedsProjection: Column =  primaryNeedsColumns.reduce(_ + _).alias("primaryNeeds")
-    val workProjection: Column = workColumns.reduce(doMinsToHoursUdf(_) + doMinsToHoursUdf(_)).alias("work")
-    val otherProjection: Column = otherColumns.reduce(_ + _).alias("other")
 
-    df
+    val fields = Seq(StructField("primaryNeeds",DoubleType), StructField("work",DoubleType),StructField("other",DoubleType))
+    val schema = StructType(df.schema.fields ++ fields)
+
+    val underlyingRdd = df.rdd
+    val mapped = underlyingRdd.mapPartitions( (i)=> {
+      i.map(r=> {
+        def adder(r: Row): Seq[Double] = {
+          val p = primary.foldLeft(0.0)((acc,v)=> acc + r.getAs[Double](v)/60.0)
+          val w = working.foldLeft(0.0)((acc,v)=> acc + r.getAs[Double](v)/60.0)
+          val o = other.foldLeft(0.0)((acc,v)=>   acc + r.getAs[Double](v)/60.0)
+          Seq(p,w,o)
+        }
+        Row.fromSeq(r.toSeq ++ adder(r))
+      })
+    })
+
+
+    val primaryNeedsProjection: Column = column("primaryNeeds").as("primaryNeeds")
+    val workProjection: Column = column("work").as("work")
+    val otherProjection: Column = column("other").as("other")
+
+    import spark.sqlContext
+    val df2 = sqlContext.createDataFrame(mapped,schema)
+
+    df2
       .select(workingStatusProjection, sexProjection, ageProjection, primaryNeedsProjection, workProjection, otherProjection)
       .where($"telfs" <= 4) // Discard people who are not in labor force
   }
