@@ -31,7 +31,7 @@ object TimeUsage {
     val (primaryNeedsColumns, workColumns, otherColumns) = classifiedColumns(columns)
     val summaryDf = timeUsageSummary(primaryNeedsColumns, workColumns, otherColumns, initDf)
 
-    val showDebugInfo = true
+    val showDebugInfo = false
     if(showDebugInfo) {
       println("========== timeUsageSummary ================")
       summaryDf.show()
@@ -208,34 +208,49 @@ object TimeUsage {
         .as("age")
 
 
+//    // OPTION 1 : Use the RDD to do the aggregate
+//
+//    val fields = Seq(StructField("primaryNeeds",DoubleType), StructField("work",DoubleType),StructField("other",DoubleType))
+//    val schema = StructType(df.schema.fields ++ fields)
+//
+//    val underlyingRdd = df.rdd
+//    val mapped = underlyingRdd.mapPartitions( (i)=> {
+//      i.map(r=> {
+//        def adder(r: Row): Seq[Double] = {
+//          val p = primary.foldLeft(0.0)((acc,v)=> acc + r.getAs[Double](v)/60.0)
+//          val w = working.foldLeft(0.0)((acc,v)=> acc + r.getAs[Double](v)/60.0)
+//          val o = other.foldLeft(0.0)((acc,v)=>   acc + r.getAs[Double](v)/60.0)
+//          Seq(p,w,o)
+//        }
+//        Row.fromSeq(r.toSeq ++ adder(r))
+//      })
+//    })
+//
+//
+//    val primaryNeedsProjection: Column = column("primaryNeeds").as("primaryNeeds")
+//    val workProjection: Column = column("work").as("work")
+//    val otherProjection: Column = column("other").as("other")
+//
+//    import spark.sqlContext
+//    val df2 = sqlContext.createDataFrame(mapped,schema)
+//
+//    val finalDf = df2
+//      .select(workingStatusProjection, sexProjection, ageProjection, primaryNeedsProjection, workProjection, otherProjection)
+//      .where($"telfs" <= 4) // Discard people who are not in labor force
 
-    val fields = Seq(StructField("primaryNeeds",DoubleType), StructField("work",DoubleType),StructField("other",DoubleType))
-    val schema = StructType(df.schema.fields ++ fields)
-
-    val underlyingRdd = df.rdd
-    val mapped = underlyingRdd.mapPartitions( (i)=> {
-      i.map(r=> {
-        def adder(r: Row): Seq[Double] = {
-          val p = primary.foldLeft(0.0)((acc,v)=> acc + r.getAs[Double](v)/60.0)
-          val w = working.foldLeft(0.0)((acc,v)=> acc + r.getAs[Double](v)/60.0)
-          val o = other.foldLeft(0.0)((acc,v)=>   acc + r.getAs[Double](v)/60.0)
-          Seq(p,w,o)
-        }
-        Row.fromSeq(r.toSeq ++ adder(r))
-      })
-    })
 
 
-    val primaryNeedsProjection: Column = column("primaryNeeds").as("primaryNeeds")
-    val workProjection: Column = column("work").as("work")
-    val otherProjection: Column = column("other").as("other")
+    // OPTION 2 : Use the "reduce" to do the aggregate
+    val primaryNeedsProjection: Column = primaryNeedsColumns.reduce(_ + _).divide(60).as("primaryNeeds")
+    val workProjection: Column =  workColumns.reduce(_ + _).divide(60).as("work")
+    val otherProjection: Column =  otherColumns.reduce(_ + _).divide(60).as("other")
 
-    import spark.sqlContext
-    val df2 = sqlContext.createDataFrame(mapped,schema)
-
-    df2
+    val finalDf = df
       .select(workingStatusProjection, sexProjection, ageProjection, primaryNeedsProjection, workProjection, otherProjection)
       .where($"telfs" <= 4) // Discard people who are not in labor force
+
+    finalDf
+
   }
 
   /** @return the average daily time (in hours) spent in primary needs, working or leisure, grouped by the different
