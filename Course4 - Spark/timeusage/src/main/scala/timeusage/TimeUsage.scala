@@ -274,9 +274,9 @@ object TimeUsage {
     val colsToGroupOn = List(col("working"),col("sex"),col("age"))
     summed.groupBy(colsToGroupOn:_*)
       .agg(
-        round(avg($"primaryNeeds").as[Double],1).alias("primaryNeeds"),
-        round(avg($"work").as[Double],1).alias("work"),
-        round(avg($"other").as[Double],1).alias("other")
+        round(avg($"primaryNeeds").as[Double].alias("primaryNeeds"),1),
+        round(avg($"work").as[Double].alias("work"),1),
+        round(avg($"other").as[Double].alias("other"),1)
       )
       .orderBy(colsToGroupOn:_*)
   }
@@ -299,9 +299,9 @@ object TimeUsage {
             working,
             sex,
             age,
-            round(avg(primaryNeeds),1) primaryNeeds,
-            round(avg(work),1) work,
-            round(avg(other),1) other
+            round(avg(primaryNeeds),1) as primaryNeeds,
+            round(avg(work),1) as work,
+            round(avg(other),1) as other
         FROM ${viewName}
         GROUP BY
             working,
@@ -311,6 +311,7 @@ object TimeUsage {
             working,
             sex,
             age"""
+
  }
 
   /**
@@ -347,6 +348,13 @@ object TimeUsage {
     import org.apache.spark.sql.expressions.scalalang._
     import org.apache.spark.sql.functions._
 
+
+    def round(v: Double): Double = {
+      val bd = BigDecimal(v.toString)
+      val rounded = bd.setScale(1,BigDecimal.RoundingMode.HALF_UP)
+      rounded.toDouble
+    }
+
     val colsToOrderBy = List(col("working"),col("sex"),col("age"))
     summed
       .groupByKey(x => (x.working,x.sex,x.age))
@@ -357,7 +365,7 @@ object TimeUsage {
       )
       .map(grp =>  {
         val (working,sex,age) = grp._1
-        TimeUsageRow(working,sex,age,Math.round(grp._2),Math.round(grp._3),Math.round(grp._4))
+        TimeUsageRow(working,sex,age,round(grp._2),round(grp._3),round(grp._4))
       })
       .orderBy("working","sex","age")
   }
